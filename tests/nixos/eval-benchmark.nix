@@ -80,18 +80,18 @@ in
     machine.log("Warmup complete.")
 
     # 3 timed runs
-    times = []
+    times: list[float] = []
     for i in range(3):
-        result = machine.succeed(
+        result: str = machine.succeed(
             f"bash -c 'start=$(date +%s%N); {eval_cmd}; end=$(date +%s%N); echo $(( end - start ))'"
         )
         # The last line is the nanosecond duration
         ns = int(result.strip().split('\n')[-1])
-        t = ns / 1_000_000_000
+        t: float = ns / 1_000_000_000
         times.append(t)
         machine.log(f"Run {i+1}: {t:.3f}s")
 
-    avg = sum(times) / len(times)
+    avg: float = sum(times) / len(times)
     machine.log(f"BENCHMARK RESULT: average={avg:.3f}s runs={times}")
 
     # Write structured result
