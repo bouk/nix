@@ -82,19 +82,14 @@ This single command:
 
 ### Extracting the metric
 
-The benchmark prints results to the test log. Look for lines like:
-
-```
-BENCHMARK RESULT: average=X.XXXs runs=[...]
-BENCHMARK_JSON: {"avg_seconds": X.XXX, "runs": [...]}
-```
-
-The result JSON is also written to the nix build output, so after a successful build:
+After a successful build, read the result:
 ```bash
 cat result/benchmark-result.json
 ```
 
-The key metric is **average wall-clock seconds** over 3 warm runs. Lower is better.
+This returns JSON like `{"avg_seconds": 4.567, "runs": [4.5, 4.6, 4.6]}`. The key metric is **avg_seconds** — lower is better.
+
+If the build fails, check `build.log` for errors.
 
 ### Verifying correctness
 
