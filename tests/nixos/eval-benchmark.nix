@@ -32,6 +32,7 @@ in
 
   testScript = ''
     import json
+    import os
 
     machine.wait_for_unit("multi-user.target")
 
