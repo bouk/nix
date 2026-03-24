@@ -96,6 +96,8 @@ struct WorkerProto::BasicClientConnection : WorkerProto::BasicConnection
 
     void addTempRoot(const StoreDirConfig & remoteStore, bool * daemonException, const StorePath & path);
 
+    bool addTempRootAndCheck(const StoreDirConfig & remoteStore, bool * daemonException, const StorePath & path);
+
     StorePathSet queryValidPaths(
         const StoreDirConfig & remoteStore,
         bool * daemonException,

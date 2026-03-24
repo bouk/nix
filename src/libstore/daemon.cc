@@ -676,6 +676,16 @@ static void performOp(
         break;
     }
 
+    case WorkerProto::Op::AddTempRootAndCheck: {
+        auto path = WorkerProto::Serialise<StorePath>::read(*store, rconn);
+        logger->startWork();
+        store->addTempRoot(path);
+        bool valid = store->isValidPath(path);
+        logger->stopWork();
+        conn.to << (valid ? 1 : 0);
+        break;
+    }
+
     case WorkerProto::Op::AddPermRoot: {
         if (!trusted)
             throw Error(

@@ -664,6 +664,19 @@ void RemoteStore::addTempRoot(const StorePath & path)
     conn->addTempRoot(*this, &conn.daemonException, path);
 }
 
+bool RemoteStore::addTempRootAndCheck(const StorePath & path)
+{
+    auto conn(getConnection());
+    if (conn->protoVersion.features.contains(WorkerProto::featureAddTempRootAndCheck)) {
+        return conn->addTempRootAndCheck(*this, &conn.daemonException, path);
+    }
+    conn->addTempRoot(*this, &conn.daemonException, path);
+    conn->to << WorkerProto::Op::IsValidPath;
+    WorkerProto::write(*this, *conn, path);
+    conn.processStderr();
+    return readInt(conn->from) != 0;
+}
+
 Roots RemoteStore::findRoots(bool censor)
 {
     auto conn(getConnection());

@@ -285,6 +285,14 @@ void WorkerProto::BasicClientConnection::addTempRoot(
     readInt(from);
 }
 
+bool WorkerProto::BasicClientConnection::addTempRootAndCheck(
+    const StoreDirConfig & store, bool * daemonException, const StorePath & path)
+{
+    to << WorkerProto::Op::AddTempRootAndCheck << store.printStorePath(path);
+    processStderr(daemonException);
+    return readInt(from) == 1;
+}
+
 void WorkerProto::BasicClientConnection::putBuildDerivationRequest(
     const StoreDirConfig & store,
     bool * daemonException,

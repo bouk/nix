@@ -125,6 +125,13 @@ struct WorkerProto
     static constexpr std::string_view featureRealisationWithPath = "realisation-with-path-not-hash";
 
     /**
+     * Feature for combining addTempRoot and isValidPath into a single
+     * round-trip, used by writeDerivation to avoid 2 separate IPC calls
+     * per derivation.
+     */
+    static constexpr std::string_view featureAddTempRootAndCheck = "add-temp-root-and-check";
+
+    /**
      * A unidirectional read connection, to be used by the read half of the
      * canonical serializers below.
      */
@@ -245,6 +252,7 @@ enum struct WorkerProto::Op : uint64_t {
     AddBuildLog = 45,
     BuildPathsWithResults = 46,
     AddPermRoot = 47,
+    AddTempRootAndCheck = 48,
 };
 
 struct WorkerProto::ClientHandshakeInfo

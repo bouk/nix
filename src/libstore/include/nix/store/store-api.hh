@@ -814,6 +814,16 @@ public:
     }
 
     /**
+     * Combine addTempRoot and isValidPath into a single operation.
+     * For remote stores this saves one IPC round-trip per call.
+     */
+    virtual bool addTempRootAndCheck(const StorePath & path)
+    {
+        addTempRoot(path);
+        return isValidPath(path);
+    }
+
+    /**
      * @return a string representing information about the path that
      * can be loaded into the database using `nix-store --load-db` or
      * `nix-store --register-validity`.
