@@ -356,6 +356,27 @@
               )).componentTests
             )
         // devFlake.checks.${system} or { }
+        // lib.optionalAttrs (builtins.elem system linux64BitSystems) {
+          eval-benchmark =
+            let
+              pkgs = nixpkgsFor.${system}.native;
+              nixos-lib = import (nixpkgs + "/nixos/lib") { };
+            in
+            nixos-lib.runTest {
+              imports = [ ./tests/nixos/eval-benchmark.nix ];
+              hostPkgs = pkgs;
+              defaults = {
+                nixpkgs.pkgs = pkgs;
+                nix.checkAllErrors = false;
+                nix.package = pkgs.nixComponents2.nix-cli;
+                documentation.enable = false;
+                system.tools.nixos-option.enable = false;
+              };
+              _module.args.nixComponents = pkgs.nixComponents2;
+              _module.args.nixpkgs = nixpkgs;
+              _module.args.system = system;
+            };
+        }
       );
 
       packages = forAllSystems (
@@ -555,6 +576,11 @@
             default = self.devShells.${system}.native;
           }
         );
+
+      nixosConfigurations.testsystem = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [ ./testsystem.nix ];
+      };
 
       lib = {
         /**

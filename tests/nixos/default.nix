@@ -102,6 +102,8 @@ let
 in
 
 {
+  eval-benchmark = runNixOSTest ./eval-benchmark.nix;
+
   authorization = runNixOSTest ./authorization.nix;
 
   remoteBuilds = runNixOSTest ./remote-builds.nix;
