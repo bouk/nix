@@ -24,8 +24,8 @@ in
 
   nodes.machine = { config, pkgs, ... }: {
     virtualisation.writableStore = true;
-    virtualisation.memorySize = 4096;
-    virtualisation.cores = 2;
+    virtualisation.memorySize = 8192;
+    virtualisation.cores = 8;
 
     nix.settings.experimental-features = [ "nix-command" "flakes" ];
   };
