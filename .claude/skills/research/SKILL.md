@@ -89,9 +89,9 @@ BENCHMARK RESULT: average=X.XXXs runs=[...]
 BENCHMARK_JSON: {"avg_seconds": X.XXX, "runs": [...]}
 ```
 
-Extract from the build log:
+The result JSON is also written to the nix build output, so after a successful build:
 ```bash
-grep "BENCHMARK_JSON" build.log
+cat result/benchmark-result.json
 ```
 
 The key metric is **average wall-clock seconds** over 3 warm runs. Lower is better.

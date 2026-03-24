@@ -62,7 +62,11 @@ in
     machine.log(f"BENCHMARK RESULT: average={avg:.3f}s runs={times}")
 
     result_json = json.dumps({"avg_seconds": round(avg, 3), "runs": [round(sec, 3) for sec in times]})
-    machine.succeed(f"echo '{result_json}' > /tmp/benchmark-result.json")
     machine.log(f"BENCHMARK_JSON: {result_json}")
+
+    # Write result to $out so it ends up in the nix build result/ symlink
+    out_dir: str = os.environ.get("out", "/tmp")
+    with open(os.path.join(out_dir, "benchmark-result.json"), "w") as f:
+        f.write(result_json)
   '';
 }
