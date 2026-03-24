@@ -81,21 +81,21 @@ in
 
     # 3 timed runs
     times: list[float] = []
-    for i in range(3):
-        result: str = machine.succeed(
+    for run_idx in range(3):
+        run_result: str = machine.succeed(
             f"bash -c 'start=$(date +%s%N); {eval_cmd}; end=$(date +%s%N); echo $(( end - start ))'"
         )
         # The last line is the nanosecond duration
-        ns = int(result.strip().split('\n')[-1])
-        t: float = ns / 1_000_000_000
-        times.append(t)
-        machine.log(f"Run {i+1}: {t:.3f}s")
+        ns = int(run_result.strip().split('\n')[-1])
+        elapsed: float = ns / 1_000_000_000
+        times.append(elapsed)
+        machine.log(f"Run {run_idx+1}: {elapsed:.3f}s")
 
     avg: float = sum(times) / len(times)
     machine.log(f"BENCHMARK RESULT: average={avg:.3f}s runs={times}")
 
     # Write structured result
-    result_json = json.dumps({"avg_seconds": round(avg, 3), "runs": [round(t, 3) for t in times]})
+    result_json = json.dumps({"avg_seconds": round(avg, 3), "runs": [round(sec, 3) for sec in times]})
     machine.succeed(f"echo '{result_json}' > /tmp/benchmark-result.json")
     machine.log(f"BENCHMARK_JSON: {result_json}")
   '';
