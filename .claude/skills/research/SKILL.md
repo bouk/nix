@@ -38,6 +38,8 @@ Once you get confirmation, kick off the experimentation.
 
 The benchmark evaluates a NixOS system configuration (~5500 derivations). It measures **warm** evaluation time — the time after caches are populated.
 
+**Tools**: Any tools you need (e.g. `hyperfine`, `perf`, `flamegraph`, etc.) can be run via `nix run nixpkgs#<tool>` without installing them globally.
+
 **What you CAN modify:**
 - `src/libexpr/` — the Nix expression evaluator (thunk forcing, function calls, attribute lookups, primops, etc.)
 - `src/libstore/` — store operations, daemon protocol, client-daemon communication
