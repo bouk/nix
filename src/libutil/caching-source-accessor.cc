@@ -12,6 +12,7 @@ class CachingSourceAccessor : public SourceAccessor
 
     boost::concurrent_flat_map<CanonPath, Stat> lstatCache;
     boost::concurrent_flat_map<CanonPath, std::string> readLinkCache;
+    boost::concurrent_flat_map<CanonPath, DirEntries> readDirectoryCache;
 
     void anchor() override {};
 
@@ -54,7 +55,16 @@ public:
 
     DirEntries readDirectory(const CanonPath & path) override
     {
-        return next->readDirectory(path);
+        if (auto res = getConcurrent(readDirectoryCache, path))
+            return *res;
+
+        auto entries = next->readDirectory(path);
+        /* Never evict, like the other caches. Listing a directory through
+           e.g. a git tree accessor is expensive, and evaluation (e.g.
+           builtins.readDir during module discovery) tends to list the same
+           directories repeatedly. */
+        readDirectoryCache.emplace(path, entries);
+        return entries;
     }
 
     void readDirectory(
@@ -84,6 +94,7 @@ public:
     {
         lstatCache.clear();
         readLinkCache.clear();
+        readDirectoryCache.clear();
         next->invalidateCache();
     }
 
