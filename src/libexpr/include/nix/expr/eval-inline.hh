@@ -67,20 +67,26 @@ Env & EvalMemory::allocEnv(size_t size)
     Env * env;
 
 #if NIX_USE_BOEHMGC
-    if (size == 1) {
-        /* Allocation cache for size-1 Env objects. Boehm GC is already a global resource, so thread_local is
-           a natural solution. Multiple EvalState instances on the same thread will reuse the same cache. */
-        static thread_local std::shared_ptr<void *> env1AllocCache{
-            std::allocate_shared<void *>(traceable_allocator<void *>(), nullptr)};
+    /* Function calls allocate an Env per call, so batch the allocation of
+       all common sizes, not just 1. Boehm GC is already a global resource,
+       so thread_local is a natural solution. Multiple EvalState instances
+       on the same thread will reuse the same caches. */
+    constexpr size_t maxBatchedEnvSize = 8;
+    if (size >= 1 && size <= maxBatchedEnvSize) {
+        using EnvCacheArray = std::array<void *, maxBatchedEnvSize>;
+        static thread_local std::shared_ptr<EnvCacheArray> envAllocCaches{
+            std::allocate_shared<EnvCacheArray>(traceable_allocator<EnvCacheArray>(), EnvCacheArray{})};
+
+        void *& cache = (*envAllocCaches)[size - 1];
         /* see allocValue for explanations. */
-        if (!*env1AllocCache) {
-            *env1AllocCache = GC_malloc_many(sizeof(Env) + sizeof(Value *));
-            if (!*env1AllocCache)
+        if (!cache) {
+            cache = GC_malloc_many(sizeof(Env) + size * sizeof(Value *));
+            if (!cache)
                 throw std::bad_alloc();
         }
 
-        void * p = *env1AllocCache;
-        *env1AllocCache = GC_NEXT(p);
+        void * p = cache;
+        cache = GC_NEXT(p);
         GC_NEXT(p) = nullptr;
         env = (Env *) p;
     } else
