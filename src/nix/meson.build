@@ -43,8 +43,16 @@ if get_option('plugin-c-api')
 endif
 
 mimalloc = dependency('mimalloc', required : get_option('mimalloc'))
+mimalloc_link_args = []
 if mimalloc.found()
   deps_private += mimalloc
+  if host_machine.system() == 'darwin'
+    # No symbols of mimalloc are referenced directly (it overrides malloc
+    # from its initializer by registering a malloc zone), so ld64 considers
+    # the dylib unused and omits the load command, silently disabling the
+    # override. Force it to be kept.
+    mimalloc_link_args += ['-Wl,-needed-lmimalloc']
+  endif
 endif
 
 subdir('nix-meson-build-support/export-all-symbols')
@@ -203,7 +211,7 @@ this_exe = executable(
   sources,
   dependencies : deps_private_subproject + deps_private + deps_other + deps_plugin_c_apis,
   include_directories : include_dirs,
-  link_args : linker_export_flags,
+  link_args : linker_export_flags + mimalloc_link_args,
   export_dynamic : get_option('plugin-c-api'),
   install : true,
   cpp_pch : do_pch ? [ 'pch/precompiled-headers.hh' ] : [],
