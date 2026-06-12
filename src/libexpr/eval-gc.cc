@@ -101,7 +101,7 @@ static inline void initGCReal()
     if (!getEnv("GC_INITIAL_HEAP_SIZE")) {
         size_t size = 32 * 1024 * 1024;
 #  if HAVE_SYSCONF && defined(_SC_PAGESIZE) && defined(_SC_PHYS_PAGES)
-        size_t maxSize = 384 * 1024 * 1024;
+        size_t maxSize = 4ULL * 1024 * 1024 * 1024;
         long pageSize = sysconf(_SC_PAGESIZE);
         long pages = sysconf(_SC_PHYS_PAGES);
         if (pageSize != -1)
