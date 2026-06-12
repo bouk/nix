@@ -573,6 +573,24 @@ struct DrvHashModulo
 DrvHashModulo hashDerivationModulo(Store & store, const Derivation & drv, bool maskOutputs);
 
 /**
+ * Compute the substituted inputs map used for the hash-modulo preimage:
+ * each input derivation path replaced by (a function of) its own hash
+ * modulo. Returns std::nullopt if the derivation must stay deferred
+ * (dynamic derivation inputs, or inputs whose hash is itself deferred).
+ */
+std::optional<DerivedPathMap<StringSet>::ChildNode::Map>
+hashDerivationModuloInputs(Store & store, const Derivation & drv);
+
+/**
+ * Combination of `Store::writeDerivation` (or `computeStorePath` if
+ * `readOnly`) and `hashDerivationModulo(store, drv, false)` that shares
+ * the bulk of the unparsing work between the two, since the two
+ * serialisations only differ in the input derivations list.
+ */
+std::pair<StorePath, DrvHashModulo>
+writeDerivationAndHashModulo(Store & store, const Derivation & drv, RepairFlag repair, bool readOnly);
+
+/**
  * If a derivation is input addressed and doesn't yet have its input
  * addressed (is deferred) try using `hashDerivationModulo`.
  *

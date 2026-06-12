@@ -1855,19 +1855,16 @@ static void derivationStrictInternal(EvalState & state, std::string_view drvName
        Unless we are in read-only mode, that is, in which case we do not
        write anything. Users commonly do this to speed up evaluation in
        contexts where they don't actually want to build anything. */
-    auto drvPath =
-        settings.readOnlyMode ? computeStorePath(*state.store, drv) : state.store->writeDerivation(drv, state.repair);
+    /* Also compute the hash modulo of the derivation and memoise it.
+       That is an optimisation, but a required one in read-only mode!
+       because in that case we don't actually write store derivations,
+       so we can't read them later. */
+    auto [drvPath, h] = writeDerivationAndHashModulo(*state.store, drv, state.repair, settings.readOnlyMode);
     auto drvPathS = state.store->printStorePath(drvPath);
 
     printMsg(lvlChatty, "instantiated '%1%' -> '%2%'", drvName, drvPathS);
 
-    /* Optimisation, but required in read-only mode! because in that
-       case we don't actually write store derivations, so we can't
-       read them later. */
-    {
-        auto h = hashDerivationModulo(*state.store, drv, false);
-        drvHashes.insert_or_assign(drvPath, std::move(h));
-    }
+    drvHashes.insert_or_assign(drvPath, std::move(h));
 
     auto result = state.buildBindings(1 + drv.outputs.size());
     result.alloc(state.s.drvPath)
