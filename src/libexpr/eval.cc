@@ -2467,7 +2467,9 @@ bool EvalState::isDerivation(Value & v)
     forceValue(*i->value, i->pos);
     if (i->value->type() != nString)
         return false;
-    return i->value->string_view().compare("derivation") == 0;
+    /* operator== checks the length first, unlike compare(), avoiding the
+       memcmp call for the common non-derivation `type` values. */
+    return i->value->string_view() == std::string_view("derivation");
 }
 
 std::optional<std::string>
