@@ -87,7 +87,10 @@ static const char * makeImmutableString(std::string_view s)
 
 StringData & StringData::alloc(EvalMemory & mem, size_t size)
 {
-    void * t = mem.allocBytes(sizeof(StringData) + size + 1);
+    /* String data contains no pointers, so allocate it as "atomic" memory,
+       which the garbage collector neither clears nor scans. All callers
+       overwrite the contents completely. */
+    void * t = GC_MALLOC_ATOMIC(sizeof(StringData) + size + 1);
     if (!t)
         throw std::bad_alloc();
     auto res = new (t) StringData(size);
