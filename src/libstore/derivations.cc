@@ -641,26 +641,16 @@ static bool hasDynamicDrvDep(const Derivation & drv)
            != drv.inputDrvs.map.end();
 }
 
-std::string Derivation::unparse(
-    const StoreDirConfig & store, bool maskOutputs, DerivedPathMap<StringSet>::ChildNode::Map * actualInputs) const
+/**
+ * Unparse everything up to and including the opening bracket of the
+ * input derivations list ("Derive([outputs],[").
+ */
+static void unparseOutputsPrefix(const StoreDirConfig & store, const Derivation & drv, std::string & s, bool maskOutputs)
 {
-    std::string s;
-
-    /* The environment dominates the size of the unparsed derivation;
-       reserving based on it avoids repeated reallocation (and the
-       resulting copies) for derivations larger than any fixed guess. */
-    {
-        size_t sizeEstimate = 1024;
-        for (auto & [k, v] : env)
-            sizeEstimate += k.size() + v.size() + 8;
-        sizeEstimate += 80 * (inputSrcs.size() + inputDrvs.map.size() + outputs.size());
-        s.reserve(sizeEstimate);
-    }
-
     /* Use older unversioned form if possible, for wider compat. Use
        newer form only if we need it, which we do for
        `Xp::DynamicDerivations`. */
-    if (hasDynamicDrvDep(*this)) {
+    if (hasDynamicDrvDep(drv)) {
         s += "DrvWithVersion("sv;
         // Only version we have so far
         printUnquotedString(s, "xp-dyn-drv"sv);
@@ -671,7 +661,7 @@ std::string Derivation::unparse(
 
     bool first = true;
     s += '[';
-    for (auto & i : outputs) {
+    for (auto & i : drv.outputs) {
         if (first)
             first = false;
         else
@@ -690,7 +680,8 @@ std::string Derivation::unparse(
                 },
                 [&](const DerivationOutput::CAFixed & dof) {
                     s += ',';
-                    printUnquotedString(s, maskOutputs ? ""sv : store.printStorePath(dof.path(store, name, i.first)));
+                    printUnquotedString(
+                        s, maskOutputs ? ""sv : store.printStorePath(dof.path(store, drv.name, i.first)));
                     s += ',';
                     printUnquotedString(s, dof.ca.printMethodAlgo());
                     s += ',';
@@ -726,7 +717,19 @@ std::string Derivation::unparse(
     }
 
     s += "],["sv;
-    first = true;
+}
+
+/**
+ * Unparse the body of the input derivations list (the part between the
+ * brackets emitted by unparseOutputsPrefix and unparseSuffix).
+ */
+static void unparseInputDrvsBody(
+    const StoreDirConfig & store,
+    const Derivation & drv,
+    std::string & s,
+    const DerivedPathMap<StringSet>::ChildNode::Map * actualInputs)
+{
+    bool first = true;
     if (actualInputs) {
         for (auto & [drvHashModulo, childMap] : *actualInputs) {
             if (first)
@@ -739,7 +742,7 @@ std::string Derivation::unparse(
             s += ')';
         }
     } else {
-        for (auto & [drvPath, childMap] : inputDrvs.map) {
+        for (auto & [drvPath, childMap] : drv.inputDrvs.map) {
             if (first)
                 first = false;
             else
@@ -750,20 +753,27 @@ std::string Derivation::unparse(
             s += ')';
         }
     }
+}
 
+/**
+ * Unparse everything after the input derivations list (from its closing
+ * bracket up to and including the final ")").
+ */
+static void unparseSuffix(const StoreDirConfig & store, const Derivation & drv, std::string & s, bool maskOutputs)
+{
     s += "],"sv;
-    auto paths = store.printStorePathSet(inputSrcs); // FIXME: slow
+    auto paths = store.printStorePathSet(drv.inputSrcs); // FIXME: slow
     printUnquotedStrings(s, paths.begin(), paths.end());
 
     s += ',';
-    printUnquotedString(s, platform);
+    printUnquotedString(s, drv.platform);
     s += ',';
-    printString(s, builder);
+    printString(s, drv.builder);
     s += ',';
-    printStrings(s, args.begin(), args.end());
+    printStrings(s, drv.args.begin(), drv.args.end());
 
     s += ",["sv;
-    first = true;
+    bool first = true;
 
     auto unparseEnv = [&](const StringPairs & atermEnv) {
         for (auto & i : atermEnv) {
@@ -774,21 +784,48 @@ std::string Derivation::unparse(
             s += '(';
             printString(s, i.first);
             s += ',';
-            printString(s, maskOutputs && outputs.count(i.first) ? ""sv : i.second);
+            printString(s, maskOutputs && drv.outputs.count(i.first) ? ""sv : i.second);
             s += ')';
         }
     };
 
-    StructuredAttrs::checkKeyNotInUse(env);
-    if (structuredAttrs) {
-        StringPairs scratch = env;
-        scratch.insert(structuredAttrs->unparse());
+    StructuredAttrs::checkKeyNotInUse(drv.env);
+    if (drv.structuredAttrs) {
+        StringPairs scratch = drv.env;
+        scratch.insert(drv.structuredAttrs->unparse());
         unparseEnv(scratch);
     } else {
-        unparseEnv(env);
+        unparseEnv(drv.env);
     }
 
     s += "])"sv;
+}
+
+/**
+ * An estimate of the unparsed size of a derivation, for reserving string
+ * capacity.
+ */
+static size_t unparseSizeEstimate(const Derivation & drv)
+{
+    /* The environment dominates the size of the unparsed derivation;
+       estimating based on it avoids repeated reallocation (and the
+       resulting copies) for derivations larger than any fixed guess. */
+    size_t sizeEstimate = 1024;
+    for (auto & [k, v] : drv.env)
+        sizeEstimate += k.size() + v.size() + 8;
+    sizeEstimate += 80 * (drv.inputSrcs.size() + drv.inputDrvs.map.size() + drv.outputs.size());
+    return sizeEstimate;
+}
+
+std::string Derivation::unparse(
+    const StoreDirConfig & store, bool maskOutputs, DerivedPathMap<StringSet>::ChildNode::Map * actualInputs) const
+{
+    std::string s;
+    s.reserve(unparseSizeEstimate(*this));
+
+    unparseOutputsPrefix(store, *this, s, maskOutputs);
+    unparseInputDrvsBody(store, *this, s, actualInputs);
+    unparseSuffix(store, *this, s, maskOutputs);
 
     return s;
 }
@@ -943,11 +980,21 @@ DrvHashModulo hashDerivationModulo(Store & store, const Derivation & drv, bool m
 
     /* For other derivations, replace the inputs paths with recursive
        calls to this function. */
+    auto inputs2 = hashDerivationModuloInputs(store, drv);
+    if (!inputs2)
+        return DrvHashModulo::DeferredDrv{};
+
+    return hashString(HashAlgorithm::SHA256, drv.unparse(store, maskOutputs, &*inputs2));
+}
+
+std::optional<DerivedPathMap<StringSet>::ChildNode::Map>
+hashDerivationModuloInputs(Store & store, const Derivation & drv)
+{
     DerivedPathMap<StringSet>::ChildNode::Map inputs2;
     for (auto & [drvPath, node] : drv.inputDrvs.map) {
         /* Need to build and resolve dynamic derivations first */
         if (!node.childMap.empty()) {
-            return DrvHashModulo::DeferredDrv{};
+            return std::nullopt;
         }
 
         const auto & res = pathDerivationModulo(store, drvPath);
@@ -976,11 +1023,87 @@ DrvHashModulo hashDerivationModulo(Store & store, const Derivation & drv, bool m
                     },
                 },
                 res.raw)) {
-            return DrvHashModulo::DeferredDrv{};
+            return std::nullopt;
+        }
+    }
+    return inputs2;
+}
+
+std::pair<StorePath, DrvHashModulo>
+writeDerivationAndHashModulo(Store & store, const Derivation & drv, RepairFlag repair, bool readOnly)
+{
+    /* For derivation types whose hash-modulo doesn't unparse the whole
+       derivation (fixed-output: per-output hashes; floating CA / impure:
+       deferred), there is nothing to share between the two operations. */
+    bool isInputAddressed = std::visit(
+        overloaded{
+            [](const DerivationType::InputAddressed &) { return true; },
+            [](const DerivationType::ContentAddressed &) { return false; },
+            [](const DerivationType::Impure &) { return false; }},
+        drv.type().raw);
+
+    if (!isInputAddressed) {
+        auto drvPath = readOnly ? computeStorePath(store, drv) : store.writeDerivation(drv, repair);
+        return {std::move(drvPath), hashDerivationModulo(store, drv, false)};
+    }
+
+    /* Unparse the derivation once, in segments: the part after the input
+       derivations list (dominated by the environment) is byte-identical
+       between the on-disk derivation and the hash-modulo preimage, which
+       only differ in the inputs body. This way the expensive escaping
+       pass over the environment happens once instead of twice, and on a
+       warm store the full text is never even materialized. */
+    std::string prefix, body, suffix;
+    suffix.reserve(unparseSizeEstimate(drv));
+    unparseOutputsPrefix(store, drv, prefix, false);
+    unparseInputDrvsBody(store, drv, body, nullptr);
+    unparseSuffix(store, drv, suffix, false);
+
+    auto hashSegments = [](std::string_view a, std::string_view b, std::string_view c) {
+        HashSink sink(HashAlgorithm::SHA256);
+        sink.writeUnbuffered(a);
+        sink.writeUnbuffered(b);
+        sink.writeUnbuffered(c);
+        return sink.finish().hash;
+    };
+
+    auto references = drv.inputSrcs;
+    for (auto & i : drv.inputDrvs.map)
+        references.insert(i.first);
+    auto ca = TextInfo{.hash = hashSegments(prefix, body, suffix), .references = references};
+    auto pathSuffix = std::string(drv.name) + drvExtension;
+    auto drvPath = store.makeFixedOutputPathFromCA(pathSuffix, ca);
+
+    if (!readOnly) {
+        /* See Store::writeDerivation for why the temproot is added even
+           when the path is already valid. */
+        store.addTempRoot(drvPath);
+
+        if (!store.isValidPath(drvPath) || repair) {
+            auto contents = prefix + body + suffix;
+            StringSource s{contents};
+            auto drvPath2 = store.addToStoreFromDump(
+                s,
+                pathSuffix,
+                FileSerialisationMethod::Flat,
+                ContentAddressMethod::Raw::Text,
+                HashAlgorithm::SHA256,
+                references,
+                repair);
+            assert(drvPath2 == drvPath);
         }
     }
 
-    return hashString(HashAlgorithm::SHA256, drv.unparse(store, maskOutputs, &inputs2));
+    auto hashModulo = [&]() -> DrvHashModulo {
+        auto inputs2 = hashDerivationModuloInputs(store, drv);
+        if (!inputs2)
+            return DrvHashModulo::DeferredDrv{};
+        std::string body2;
+        unparseInputDrvsBody(store, drv, body2, &*inputs2);
+        return hashSegments(prefix, body2, suffix);
+    }();
+
+    return {std::move(drvPath), std::move(hashModulo)};
 }
 
 static DerivationOutput readDerivationOutput(Source & in, const StoreDirConfig & store)
