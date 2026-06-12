@@ -572,6 +572,13 @@ void LocalStore::openDB(State & state, bool create)
     if (mode == "wal" && sqlite3_exec(db, "pragma wal_autocheckpoint = 40000;", 0, 0, 0) != SQLITE_OK)
         SQLiteError::throw_(db, "setting autocheckpoint interval");
 
+    /* Memory-map the database for reads: page lookups become memory
+       accesses instead of read() syscalls. Particularly noticeable for
+       evaluations, which perform one validity query per .drv written.
+       Failure is non-fatal (e.g. filesystems without mmap support);
+       SQLite transparently falls back to read(). */
+    sqlite3_exec(db, "pragma main.mmap_size = 1073741824;", 0, 0, 0);
+
     /* Initialise the database schema, if necessary. */
     if (create) {
         static const char schema[] =
