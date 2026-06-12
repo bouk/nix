@@ -18,7 +18,34 @@ Bindings * EvalMemory::allocBindings(size_t capacity)
         throw Error("attribute set of size %d is too big", capacity);
     stats.nrAttrsets++;
     stats.nrAttrsInAttrsets += capacity;
-    return new (allocBytes(sizeof(Bindings) + sizeof(Attr) * capacity)) Bindings();
+
+    void * p;
+#if NIX_USE_BOEHMGC
+    /* Batch the allocation of small Bindings the same way Values and Envs
+       are batched; small attribute sets are allocated millions of times
+       during e.g. NixOS evaluation. */
+    constexpr size_t maxBatchedCapacity = 8;
+    if (capacity <= maxBatchedCapacity) {
+        using BindingsCacheArray = std::array<void *, maxBatchedCapacity>;
+        static thread_local std::shared_ptr<BindingsCacheArray> bindingsAllocCaches{
+            std::allocate_shared<BindingsCacheArray>(traceable_allocator<BindingsCacheArray>(), BindingsCacheArray{})};
+
+        void *& cache = (*bindingsAllocCaches)[capacity - 1];
+        /* see EvalMemory::allocValue for explanations. */
+        if (!cache) {
+            cache = GC_malloc_many(sizeof(Bindings) + sizeof(Attr) * capacity);
+            if (!cache)
+                throw std::bad_alloc();
+        }
+
+        p = cache;
+        cache = GC_NEXT(p);
+        GC_NEXT(p) = nullptr;
+    } else
+#endif
+        p = allocBytes(sizeof(Bindings) + sizeof(Attr) * capacity);
+
+    return new (p) Bindings();
 }
 
 Value & BindingsBuilder::alloc(Symbol name, PosIdx pos)
