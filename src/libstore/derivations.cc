@@ -532,30 +532,31 @@ Derivation parseDerivation(
  */
 static void printString(std::string & res, std::string_view s)
 {
+    /* Escaped form of every byte, or 0 for bytes that are emitted
+       verbatim. Most strings contain no escapes at all, so scan for
+       maximal clean spans and bulk-append them instead of copying byte
+       by byte. */
+    static constexpr auto escapes = []() constexpr {
+        std::array<char, 256> res{};
+        res['"'] = '"';
+        res['\\'] = '\\';
+        res['\n'] = 'n';
+        res['\r'] = 'r';
+        res['\t'] = 't';
+        return res;
+    }();
+
     res += '"';
-    static constexpr auto chunkSize = 1024;
-    std::array<char, 2 * chunkSize + 2> buffer;
     while (!s.empty()) {
-        auto chunk = s.substr(0, /*n=*/chunkSize);
-        s.remove_prefix(chunk.size());
-        char * buf = buffer.data();
-        char * p = buf;
-        for (auto c : chunk)
-            if (c == '\"' || c == '\\') {
-                *p++ = '\\';
-                *p++ = c;
-            } else if (c == '\n') {
-                *p++ = '\\';
-                *p++ = 'n';
-            } else if (c == '\r') {
-                *p++ = '\\';
-                *p++ = 'r';
-            } else if (c == '\t') {
-                *p++ = '\\';
-                *p++ = 't';
-            } else
-                *p++ = c;
-        res.append(buf, p - buf);
+        size_t n = 0;
+        while (n < s.size() && !escapes[(unsigned char) s[n]])
+            ++n;
+        res.append(s.data(), n);
+        if (n == s.size())
+            break;
+        char buf[2] = {'\\', escapes[(unsigned char) s[n]]};
+        res.append(buf, 2);
+        s.remove_prefix(n + 1);
     }
     res += '"';
 }
@@ -644,7 +645,17 @@ std::string Derivation::unparse(
     const StoreDirConfig & store, bool maskOutputs, DerivedPathMap<StringSet>::ChildNode::Map * actualInputs) const
 {
     std::string s;
-    s.reserve(65536);
+
+    /* The environment dominates the size of the unparsed derivation;
+       reserving based on it avoids repeated reallocation (and the
+       resulting copies) for derivations larger than any fixed guess. */
+    {
+        size_t sizeEstimate = 1024;
+        for (auto & [k, v] : env)
+            sizeEstimate += k.size() + v.size() + 8;
+        sizeEstimate += 80 * (inputSrcs.size() + inputDrvs.map.size() + outputs.size());
+        s.reserve(sizeEstimate);
+    }
 
     /* Use older unversioned form if possible, for wider compat. Use
        newer form only if we need it, which we do for
