@@ -2,6 +2,7 @@
 #include "nix/util/sync.hh"
 
 #include <boost/unordered/concurrent_flat_set.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 
 namespace nix {
 
@@ -72,8 +73,23 @@ struct AllowListSourceAccessorImpl : AllowListSourceAccessor
 {
 private:
     void anchor() override {};
+
+    struct Prefixes
+    {
+        /**
+         * Ordered, for checking whether a path is an ancestor of an
+         * allowed prefix (and thus traversable).
+         */
+        std::set<CanonPath> ordered;
+
+        /**
+         * The same prefixes, for O(1) per-ancestor lookups.
+         */
+        boost::unordered_flat_set<CanonPath> byPath;
+    };
+
 public:
-    SharedSync<std::set<CanonPath>> allowedPrefixes;
+    SharedSync<Prefixes> allowedPrefixes;
     boost::concurrent_flat_set<CanonPath> allowedPaths;
 
     AllowListSourceAccessorImpl(
@@ -82,21 +98,48 @@ public:
         const std::unordered_set<CanonPath> & allowedPaths,
         MakeNotAllowedError && makeNotAllowedError)
         : AllowListSourceAccessor(SourcePath(next), std::move(makeNotAllowedError))
-        , allowedPrefixes(allowedPrefixes.begin(), allowedPrefixes.end())
+        , allowedPrefixes(Prefixes{
+              .ordered = allowedPrefixes,
+              .byPath = {allowedPrefixes.begin(), allowedPrefixes.end()},
+          })
         , allowedPaths(allowedPaths.begin(), allowedPaths.end())
     {
     }
 
     bool isAllowed(const CanonPath & path) override
     {
-        /* Read lock is held for the duration of the full expression if the || doesn't short-circuit. */
         if (allowedPaths.contains(path))
             return true;
-        if (path.isAllowed(*allowedPrefixes.readLock())) {
-            /* Memoise the verdict: the prefix check walks every ancestor
-               through an ordered set, which adds up over the many accesses
-               evaluation makes per (store) path. Only positive results are
-               cached since allowPrefix can extend the allowed set. */
+
+        bool allowed = [&] {
+            auto prefixes = allowedPrefixes.readLock();
+
+            /* Mirrors CanonPath::isAllowed, but checks ancestors against a
+               hash set instead of walking the ordered set per level. */
+            if (prefixes->byPath.contains(path))
+                return true;
+
+            /* Check if `path` is an exact match or the parent of an
+               allowed prefix. */
+            auto lb = prefixes->ordered.lower_bound(path);
+            if (lb != prefixes->ordered.end() && lb->isWithin(path))
+                return true;
+
+            /* Check if a parent of `path` is allowed. */
+            auto parent = path;
+            while (!parent.isRoot()) {
+                parent.pop();
+                if (prefixes->byPath.contains(parent))
+                    return true;
+            }
+
+            return false;
+        }();
+
+        if (allowed) {
+            /* Memoise the verdict; repeated accesses then short-circuit on
+               the concurrent set. Only positive results are cached since
+               allowPrefix can extend the allowed set. */
             allowedPaths.insert(path);
             return true;
         }
@@ -105,7 +148,9 @@ public:
 
     void allowPrefix(CanonPath prefix) override
     {
-        allowedPrefixes.lock()->insert(std::move(prefix));
+        auto prefixes = allowedPrefixes.lock();
+        prefixes->ordered.insert(prefix);
+        prefixes->byPath.insert(std::move(prefix));
     }
 };
 
