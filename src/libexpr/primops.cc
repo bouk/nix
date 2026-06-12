@@ -3948,6 +3948,47 @@ static void prim_elem(EvalState & state, const PosIdx pos, Value ** args, Value 
                     break;
                 }
             }
+        } else if (needle.type() == nAttrs) {
+            /* For attribute set needles, hoist the needle-side work that
+               eqValues would otherwise redo for every element: the
+               derivation check (a `type` attribute lookup) and the size.
+               Elements that aren't attribute sets or whose size differs
+               (when no derivation outPath comparison applies) can then be
+               rejected without the generic comparison machinery. */
+            auto needleAttrs = needle.attrs();
+            bool needleIsDrv = state.isDerivation(needle);
+            const Attr * needleOutPath = needleIsDrv ? needleAttrs->get(state.s.outPath) : nullptr;
+            for (auto elem : list) {
+                state.forceValue(*elem, pos);
+                if (elem->type() != nAttrs)
+                    continue;
+                if (elem->attrs() == needleAttrs) {
+                    res = true;
+                    break;
+                }
+                if (needleOutPath) {
+                    /* Mirrors eqValues: when both sides are derivations
+                       with an outPath, equality is outPath equality. */
+                    if (state.isDerivation(*elem)) {
+                        if (auto j = elem->attrs()->get(state.s.outPath)) {
+                            if (state.eqValues(*needleOutPath->value, *j->value, pos, errorCtx)) {
+                                res = true;
+                                break;
+                            }
+                            continue;
+                        }
+                    }
+                } else if (!needleIsDrv && needleAttrs->size() != elem->attrs()->size()) {
+                    /* eqValues would short-circuit isDerivation on the
+                       needle and then reject on size without inspecting
+                       the element further. */
+                    continue;
+                }
+                if (state.eqValues(needle, *elem, pos, errorCtx)) {
+                    res = true;
+                    break;
+                }
+            }
         } else {
             for (auto elem : list)
                 if (state.eqValues(needle, *elem, pos, errorCtx)) {
