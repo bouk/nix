@@ -530,7 +530,7 @@ Derivation parseDerivation(
  * @param res Where to print to
  * @param s Which logical string to print
  */
-static void printString(std::string & res, std::string_view s)
+static void printStringUnquoted(std::string & res, std::string_view s)
 {
     /* Escaped form of every byte, or 0 for bytes that are emitted
        verbatim. Most strings contain no escapes at all, so scan for
@@ -546,7 +546,6 @@ static void printString(std::string & res, std::string_view s)
         return res;
     }();
 
-    res += '"';
     while (!s.empty()) {
         size_t n = 0;
         while (n < s.size() && !escapes[(unsigned char) s[n]])
@@ -558,6 +557,12 @@ static void printString(std::string & res, std::string_view s)
         res.append(buf, 2);
         s.remove_prefix(n + 1);
     }
+}
+
+static void printString(std::string & res, std::string_view s)
+{
+    res += '"';
+    printStringUnquoted(res, s);
     res += '"';
 }
 
@@ -758,8 +763,13 @@ static void unparseInputDrvsBody(
 /**
  * Unparse everything after the input derivations list (from its closing
  * bracket up to and including the final ")").
+ *
+ * @param envValue Callback appending the (quoted, escaped) value of each
+ * environment entry to the string.
  */
-static void unparseSuffix(const StoreDirConfig & store, const Derivation & drv, std::string & s, bool maskOutputs)
+template<typename EnvValueHandler>
+static void
+unparseSuffixGeneric(const StoreDirConfig & store, const Derivation & drv, std::string & s, EnvValueHandler && envValue)
 {
     s += "],"sv;
     auto paths = store.printStorePathSet(drv.inputSrcs); // FIXME: slow
@@ -784,7 +794,7 @@ static void unparseSuffix(const StoreDirConfig & store, const Derivation & drv, 
             s += '(';
             printString(s, i.first);
             s += ',';
-            printString(s, maskOutputs && drv.outputs.count(i.first) ? ""sv : i.second);
+            envValue(i.first, i.second);
             s += ')';
         }
     };
@@ -799,6 +809,48 @@ static void unparseSuffix(const StoreDirConfig & store, const Derivation & drv, 
     }
 
     s += "])"sv;
+}
+
+static void unparseSuffix(const StoreDirConfig & store, const Derivation & drv, std::string & s, bool maskOutputs)
+{
+    unparseSuffixGeneric(store, drv, s, [&](const std::string & key, const std::string & value) {
+        printString(s, maskOutputs && drv.outputs.count(key) ? ""sv : std::string_view(value));
+    });
+}
+
+/**
+ * The suffix of an unparsed derivation (see unparseSuffix) split into
+ * chunks at the values of output-name environment entries, so that those
+ * values can be spliced in without re-unparsing the (usually large) rest
+ * of the environment. chunks.size() == outputNames.size() + 1, and the
+ * splice point sits between the quotes of the entry's value.
+ */
+struct UnparsedSuffixTemplate
+{
+    std::vector<std::string> chunks;
+    std::vector<std::string> outputNames;
+};
+
+static size_t unparseSizeEstimate(const Derivation & drv);
+
+static UnparsedSuffixTemplate buildSuffixTemplate(const StoreDirConfig & store, const Derivation & drv)
+{
+    UnparsedSuffixTemplate tmpl;
+    std::string s;
+    s.reserve(unparseSizeEstimate(drv));
+    unparseSuffixGeneric(store, drv, s, [&](const std::string & key, const std::string & value) {
+        if (drv.outputs.count(key)) {
+            s += '"';
+            tmpl.chunks.push_back(std::move(s));
+            tmpl.outputNames.push_back(key);
+            s = std::string();
+            s += '"';
+        } else {
+            printString(s, value);
+        }
+    });
+    tmpl.chunks.push_back(std::move(s));
+    return tmpl;
 }
 
 /**
@@ -1395,9 +1447,10 @@ std::optional<BasicDerivation> Derivation::tryResolve(
  * mismatch).
  */
 template<bool fillIn>
-static void processDerivationOutputPaths(Store & store, auto && drv, std::string_view drvName)
+static void processDerivationOutputPaths(
+    Store & store, auto && drv, std::string_view drvName, std::optional<DrvHashModulo> precomputedHashModulo = {})
 {
-    std::optional<DrvHashModulo> hashModulo_;
+    std::optional<DrvHashModulo> hashModulo_ = std::move(precomputedHashModulo);
 
     auto hashModulo = [&]() -> const auto & {
         if (!hashModulo_) {
@@ -1545,6 +1598,116 @@ void Derivation::checkInvariants(Store & store) const
 void Derivation::fillInOutputPaths(Store & store)
 {
     processDerivationOutputPaths<true>(store, *this, name);
+}
+
+std::pair<StorePath, DrvHashModulo>
+finalizeAndWriteDerivation(Store & store, Derivation & drv, RepairFlag repair, bool readOnly)
+{
+    /* This combined operation is only valid for the state derivationStrict
+       builds: an input-addressed derivation whose outputs are all Deferred
+       and whose output environment entries are empty. In that state the
+       masked and unmasked serialisations coincide, so the suffix (which is
+       dominated by the environment) can be unparsed once and shared by all
+       three hashes: the output-path hash modulo, the on-disk text, and the
+       memoised hash modulo. After the output paths are filled in, only the
+       values of output-name environment entries change, and those are
+       spliced into the prepared template. */
+    assert(std::holds_alternative<DerivationType::InputAddressed>(drv.type().raw));
+
+    auto inputs2 = hashDerivationModuloInputs(store, drv);
+
+    std::string body2;
+    if (inputs2)
+        unparseInputDrvsBody(store, drv, body2, &*inputs2);
+
+    auto tmpl = buildSuffixTemplate(store, drv);
+
+    auto hashSegments = [&tmpl](std::string_view prefix, std::string_view body, const auto & spliceValue) {
+        HashSink sink(HashAlgorithm::SHA256);
+        sink.writeUnbuffered(prefix);
+        sink.writeUnbuffered(body);
+        sink.writeUnbuffered(tmpl.chunks[0]);
+        for (size_t i = 0; i < tmpl.outputNames.size(); ++i) {
+            sink.writeUnbuffered(spliceValue(i));
+            sink.writeUnbuffered(tmpl.chunks[i + 1]);
+        }
+        return sink.finish().hash;
+    };
+
+    auto emptySplice = [](size_t) { return std::string_view(); };
+
+    /* Hash modulo of the masked derivation, determining the output
+       paths. */
+    auto maskedHashModulo = [&]() -> DrvHashModulo {
+        if (!inputs2)
+            return DrvHashModulo::DeferredDrv{};
+        std::string maskedPrefix;
+        unparseOutputsPrefix(store, drv, maskedPrefix, true);
+        return hashSegments(maskedPrefix, body2, emptySplice);
+    }();
+
+    processDerivationOutputPaths<true>(store, drv, drv.name, maskedHashModulo);
+
+    /* The output paths to splice into the suffix template, escaped. The
+       entries are guaranteed to exist after filling in (and stay empty for
+       deferred derivations). */
+    std::vector<std::string> spliceValues;
+    spliceValues.reserve(tmpl.outputNames.size());
+    for (auto & name : tmpl.outputNames) {
+        auto j = drv.env.find(name);
+        assert(j != drv.env.end());
+        std::string escaped;
+        printStringUnquoted(escaped, j->second);
+        spliceValues.push_back(std::move(escaped));
+    }
+    auto pathSplice = [&](size_t i) { return std::string_view(spliceValues[i]); };
+
+    std::string prefix, body;
+    unparseOutputsPrefix(store, drv, prefix, false);
+    unparseInputDrvsBody(store, drv, body, nullptr);
+
+    auto references = drv.inputSrcs;
+    for (auto & i : drv.inputDrvs.map)
+        references.insert(i.first);
+    auto ca = TextInfo{.hash = hashSegments(prefix, body, pathSplice), .references = references};
+    auto pathSuffix = std::string(drv.name) + drvExtension;
+    auto drvPath = store.makeFixedOutputPathFromCA(pathSuffix, ca);
+
+    if (!readOnly) {
+        /* See Store::writeDerivation for why the temproot is added even
+           when the path is already valid. */
+        store.addTempRoot(drvPath);
+
+        if (!store.isValidPath(drvPath) || repair) {
+            std::string contents;
+            contents.reserve(prefix.size() + body.size() + unparseSizeEstimate(drv));
+            contents += prefix;
+            contents += body;
+            contents += tmpl.chunks[0];
+            for (size_t i = 0; i < tmpl.outputNames.size(); ++i) {
+                contents += spliceValues[i];
+                contents += tmpl.chunks[i + 1];
+            }
+            StringSource s{contents};
+            auto drvPath2 = store.addToStoreFromDump(
+                s,
+                pathSuffix,
+                FileSerialisationMethod::Flat,
+                ContentAddressMethod::Raw::Text,
+                HashAlgorithm::SHA256,
+                references,
+                repair);
+            assert(drvPath2 == drvPath);
+        }
+    }
+
+    auto hashModulo = [&]() -> DrvHashModulo {
+        if (!inputs2)
+            return DrvHashModulo::DeferredDrv{};
+        return hashSegments(prefix, body2, pathSplice);
+    }();
+
+    return {std::move(drvPath), std::move(hashModulo)};
 }
 
 Derivation Derivation::parseJsonAndValidate(Store & store, const nlohmann::json & json)

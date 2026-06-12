@@ -591,6 +591,18 @@ std::pair<StorePath, DrvHashModulo>
 writeDerivationAndHashModulo(Store & store, const Derivation & drv, RepairFlag repair, bool readOnly);
 
 /**
+ * Combination of `Derivation::fillInOutputPaths` and
+ * `writeDerivationAndHashModulo` for input-addressed derivations whose
+ * outputs are all Deferred with empty output environment entries (the
+ * state `derivationStrict` builds). Unparses the environment-dominated
+ * part of the derivation only once for all three serialisations (the
+ * masked output-path preimage, the on-disk text, and the hash-modulo
+ * preimage).
+ */
+std::pair<StorePath, DrvHashModulo>
+finalizeAndWriteDerivation(Store & store, Derivation & drv, RepairFlag repair, bool readOnly);
+
+/**
  * If a derivation is input addressed and doesn't yet have its input
  * addressed (is deferred) try using `hashDerivationModulo`.
  *
