@@ -461,7 +461,7 @@ public:
 
     Setting<unsigned> bindingsUpdateLayerRhsSizeThreshold{
         this,
-        sizeof(void *) == 4 ? 8192 : 16,
+        8192,
         "eval-attrset-update-layer-rhs-threshold",
         R"(
           Tunes the maximum size of an attribute set that, when used
@@ -469,13 +469,12 @@ public:
           uses a more space-efficient linked-list representation of attribute sets.
 
           Setting this to larger values generally leads to less memory allocations,
-          but may lead to worse evaluation performance.
+          which also measurably reduces evaluation time on attrset-update-heavy
+          workloads such as NixOS system evaluations.
 
           A value of `0` disables this optimization completely.
 
           This is an advanced performance tuning option and typically should not be changed.
-          The default value is chosen to balance performance and memory usage. On 32 bit systems
-          where memory is scarce, the default is a large value to reduce the amount of allocations.
     )"};
 };
 
