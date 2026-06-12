@@ -2931,8 +2931,6 @@ void EvalState::assertEqValues(Value & v1, Value & v2, const PosIdx pos, std::st
 // This implementation must match assertEqValues
 bool EvalState::eqValues(Value & v1, Value & v2, const PosIdx pos, std::string_view errorCtx)
 {
-    auto _level = addCallDepth(pos);
-
     forceValue(v1, pos);
     forceValue(v2, pos);
 
@@ -2970,15 +2968,21 @@ bool EvalState::eqValues(Value & v1, Value & v2, const PosIdx pos, std::string_v
     case nNull:
         return true;
 
-    case nList:
+    case nList: {
         if (v1.listSize() != v2.listSize())
             return false;
+        /* The call depth guard is only needed where eqValues recurses
+           into nested data; scalar comparisons (the common case, e.g.
+           `builtins.elem` scanning a list of strings) skip it. */
+        auto _level = addCallDepth(pos);
         for (size_t n = 0; n < v1.listSize(); ++n)
             if (!eqValues(*v1.listView()[n], *v2.listView()[n], pos, errorCtx))
                 return false;
         return true;
+    }
 
     case nAttrs: {
+        auto _level = addCallDepth(pos);
         /* If both sets denote a derivation (type = "derivation"),
            then compare their outPaths. */
         if (isDerivation(v1) && isDerivation(v2)) {
