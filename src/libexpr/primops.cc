@@ -1527,7 +1527,14 @@ static void derivationStrictInternal(EvalState & state, std::string_view drvName
     StringSet outputs;
     outputs.insert("out");
 
-    for (auto & i : attrs->lexicographicOrder(state.symbols)) {
+    /* Note: iteration is in Symbol order, not lexicographic order. All
+       results of this loop land in order-independent containers (the
+       environment is a sorted map, the string context a set), so the
+       resulting derivation doesn't depend on the iteration order. Only
+       the forcing order (i.e. which faulty attribute is reported first)
+       does, and that is not worth a per-derivation string sort. */
+    for (auto & iRef : *attrs) {
+        auto * i = &iRef;
         if (i->name == state.s.ignoreNulls)
             continue;
         auto key = state.symbols[i->name];
