@@ -35,7 +35,11 @@ Value & BindingsBuilder::alloc(std::string_view name, PosIdx pos)
 
 void Bindings::sort()
 {
-    std::sort(attrs, attrs + numAttrs);
+    /* Bindings are frequently built in already-sorted order (e.g. literal
+       attribute sets are evaluated in Symbol-sorted member order), in which
+       case a linear scan beats running the full sort. */
+    if (!std::is_sorted(attrs, attrs + numAttrs))
+        std::sort(attrs, attrs + numAttrs);
 }
 
 Value & Value::mkAttrs(BindingsBuilder & bindings)
