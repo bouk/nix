@@ -748,7 +748,13 @@ static void unparseInputDrvsBody(
             else
                 s += ',';
             s += '(';
-            printUnquotedString(s, store.printStorePath(drvPath));
+            /* Like printUnquotedString(s, store.printStorePath(drvPath)),
+               without the temporary string. */
+            s += '"';
+            s += store.storeDir;
+            s += '/';
+            s += drvPath.to_string();
+            s += '"';
             unparseDerivedPathMapNode(store, s, childMap);
             s += ')';
         }
@@ -761,9 +767,24 @@ static void unparseInputDrvsBody(
  */
 static void unparseSuffix(const StoreDirConfig & store, const Derivation & drv, std::string & s, bool maskOutputs)
 {
-    s += "],"sv;
-    auto paths = store.printStorePathSet(drv.inputSrcs); // FIXME: slow
-    printUnquotedStrings(s, paths.begin(), paths.end());
+    /* Print inputSrcs directly: StorePathSet is ordered by base name, and
+       all printed paths share the store directory prefix, so the printed
+       order matches the order printStorePathSet would produce, without
+       materializing a set of strings. */
+    s += "],["sv;
+    bool firstSrc = true;
+    for (auto & path : drv.inputSrcs) {
+        if (firstSrc)
+            firstSrc = false;
+        else
+            s += ',';
+        s += '"';
+        s += store.storeDir;
+        s += '/';
+        s += path.to_string();
+        s += '"';
+    }
+    s += ']';
 
     s += ',';
     printUnquotedString(s, drv.platform);
