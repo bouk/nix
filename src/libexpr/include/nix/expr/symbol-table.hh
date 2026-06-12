@@ -276,8 +276,11 @@ private:
     /**
      * Transparent lookup of string view for a pointer to a ChunkedVector entry -> return offset into the store.
      * ChunkedVector references are never invalidated.
+     *
+     * Sized upfront for the symbol count of a large evaluation (e.g.
+     * NixOS interns ~100k symbols) to avoid rehashing while parsing.
      */
-    boost::concurrent_flat_set<SymbolStr, SymbolStr::Hash, SymbolStr::Equal> symbols{SymbolStr::chunkSize};
+    boost::concurrent_flat_set<SymbolStr, SymbolStr::Hash, SymbolStr::Equal> symbols{1 << 17};
 
 public:
     SymbolTable(const StaticSymbolTable & staticSymtab)
