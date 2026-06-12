@@ -31,9 +31,20 @@ void checkName(std::string_view name)
                     "name '%s' is not valid: first dash-separated component must not be '%s'", name, "..");
         }
     }
+    static constexpr auto validNameChar = []() constexpr {
+        std::array<bool, 256> res{};
+        for (unsigned char c = '0'; c <= '9'; c++)
+            res[c] = true;
+        for (unsigned char c = 'a'; c <= 'z'; c++)
+            res[c] = true;
+        for (unsigned char c = 'A'; c <= 'Z'; c++)
+            res[c] = true;
+        for (unsigned char c : {'+', '-', '.', '_', '?', '='})
+            res[c] = true;
+        return res;
+    }();
     for (auto c : name)
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '+' || c == '-'
-              || c == '.' || c == '_' || c == '?' || c == '='))
+        if (!validNameChar[(unsigned char) c])
             throw BadStorePathName("name '%s' contains illegal character '%s'", name, c);
 }
 
@@ -51,8 +62,18 @@ StorePath::StorePath(std::string_view _baseName)
 {
     if (baseName.size() < HashLen + 1)
         throw BadStorePath("'%s' is too short to be a valid store path", baseName);
+    static constexpr auto validHashChar = []() constexpr {
+        std::array<bool, 256> res{};
+        for (unsigned char c = '0'; c <= '9'; c++)
+            res[c] = true;
+        for (unsigned char c = 'a'; c <= 'z'; c++)
+            res[c] = true;
+        for (unsigned char c : {'e', 'o', 'u', 't'})
+            res[c] = false;
+        return res;
+    }();
     for (auto c : hashPart())
-        if (c == 'e' || c == 'o' || c == 'u' || c == 't' || !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z')))
+        if (!validHashChar[(unsigned char) c])
             throw BadStorePath("store path '%s' contains illegal base-32 character '%s'", baseName, c);
     checkPathName(baseName, name());
 }
