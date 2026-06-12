@@ -582,6 +582,8 @@ public:
     void setName(Symbol name) override;
     std::string showNamePos(const EvalState & state) const;
 
+    Value * maybeThunk(EvalState & state, Env & env) override;
+
     PosIdx getPos() const override
     {
         return pos;

@@ -1069,6 +1069,16 @@ Value * ExprVar::maybeThunk(EvalState & state, Env & env)
     return Expr::maybeThunk(state, env);
 }
 
+Value * ExprLambda::maybeThunk(EvalState & state, Env & env)
+{
+    /* Lambdas evaluate to a closure over the current environment without
+       any further work, so making a thunk only to have it forced into a
+       closure later is pure overhead. */
+    Value * v = state.allocValue();
+    v->mkLambda(&env, this);
+    return v;
+}
+
 Value * ExprString::maybeThunk(EvalState & state, Env & env)
 {
     state.nrAvoided++;
