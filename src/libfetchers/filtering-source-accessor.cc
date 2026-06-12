@@ -90,7 +90,17 @@ public:
     bool isAllowed(const CanonPath & path) override
     {
         /* Read lock is held for the duration of the full expression if the || doesn't short-circuit. */
-        return allowedPaths.contains(path) || path.isAllowed(*allowedPrefixes.readLock());
+        if (allowedPaths.contains(path))
+            return true;
+        if (path.isAllowed(*allowedPrefixes.readLock())) {
+            /* Memoise the verdict: the prefix check walks every ancestor
+               through an ordered set, which adds up over the many accesses
+               evaluation makes per (store) path. Only positive results are
+               cached since allowPrefix can extend the allowed set. */
+            allowedPaths.insert(path);
+            return true;
+        }
+        return false;
     }
 
     void allowPrefix(CanonPath prefix) override
