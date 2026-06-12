@@ -3929,13 +3929,33 @@ static RegisterPrimOp primop_filter({
 /* Return true if a list contains a given element. */
 static void prim_elem(EvalState & state, const PosIdx pos, Value ** args, Value & v)
 {
+    constexpr std::string_view errorCtx = "while searching for the presence of the given element in the list";
     bool res = false;
     state.forceList(*args[1], pos, "while evaluating the second argument passed to builtins.elem");
-    for (auto elem : args[1]->listView())
-        if (state.eqValues(*args[0], *elem, pos, "while searching for the presence of the given element in the list")) {
-            res = true;
-            break;
+    auto list = args[1]->listView();
+    if (list.size() != 0) {
+        auto & needle = *args[0];
+        state.forceValue(needle, pos);
+        /* Strings are by far the most common needle (e.g. scanning
+           platform/maintainer lists), and need no conversions or recursion,
+           so compare them directly instead of via eqValues. */
+        if (needle.type() == nString) {
+            auto needleView = needle.string_view();
+            for (auto elem : list) {
+                state.forceValue(*elem, pos);
+                if (elem->type() == nString && elem->string_view() == needleView) {
+                    res = true;
+                    break;
+                }
+            }
+        } else {
+            for (auto elem : list)
+                if (state.eqValues(needle, *elem, pos, errorCtx)) {
+                    res = true;
+                    break;
+                }
         }
+    }
     v.mkBool(res);
 }
 
