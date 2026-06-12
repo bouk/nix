@@ -2971,17 +2971,31 @@ bool EvalState::eqValues(Value & v1, Value & v2, const PosIdx pos, std::string_v
     case nList: {
         if (v1.listSize() != v2.listSize())
             return false;
+        auto lv1 = v1.listView();
+        auto lv2 = v2.listView();
+        /* Same elements storage means element-wise comparison would hit the
+           pointer-equality fast path for every element, so the result is
+           true without iterating. (Small lists are stored inline in the view
+           and never compare equal here, which is just a missed shortcut.) */
+        if (lv1.data() == lv2.data())
+            return true;
         /* The call depth guard is only needed where eqValues recurses
            into nested data; scalar comparisons (the common case, e.g.
            `builtins.elem` scanning a list of strings) skip it. */
         auto _level = addCallDepth(pos);
         for (size_t n = 0; n < v1.listSize(); ++n)
-            if (!eqValues(*v1.listView()[n], *v2.listView()[n], pos, errorCtx))
+            if (!eqValues(*lv1[n], *lv2[n], pos, errorCtx))
                 return false;
         return true;
     }
 
     case nAttrs: {
+        /* Shared Bindings means the attribute-wise loop below would compare
+           each value pointer with itself and hit the pointer-equality fast
+           path, so the result is true without iterating. */
+        if (v1.attrs() == v2.attrs())
+            return true;
+
         auto _level = addCallDepth(pos);
         /* If both sets denote a derivation (type = "derivation"),
            then compare their outPaths. */
