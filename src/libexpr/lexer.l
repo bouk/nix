@@ -1,6 +1,7 @@
 %option 8bit
 %option reentrant bison-bridge bison-locations
 %option align
+%option full
 %option noyywrap
 %option never-interactive
 %option stack
