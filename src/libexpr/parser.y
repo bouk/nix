@@ -235,7 +235,7 @@ expr: expr_function;
 
 expr_function
   : ID ':' expr_function
-    { auto me = state->exprs.add<ExprLambda>(CUR_POS, state->symbols.create($1), $3);
+    { auto me = state->exprs.add<ExprLambda>(CUR_POS, state->createSymbol($1), $3);
       $$ = me;
       SET_DOC_POS(me, @1);
     }
@@ -248,7 +248,7 @@ expr_function
     }
   | formal_set '@' ID ':' expr_function[body]
     {
-      auto arg = state->symbols.create($ID);
+      auto arg = state->createSymbol($ID);
       state->validateFormals($formal_set, CUR_POS, arg);
       auto me = state->exprs.add<ExprLambda>(state->positions, state->exprs.alloc, CUR_POS, arg, $formal_set, $body);
       $$ = me;
@@ -256,7 +256,7 @@ expr_function
     }
   | ID '@' formal_set ':' expr_function[body]
     {
-      auto arg = state->symbols.create($ID);
+      auto arg = state->createSymbol($ID);
       state->validateFormals($formal_set, CUR_POS, arg);
       auto me = state->exprs.add<ExprLambda>(state->positions, state->exprs.alloc, CUR_POS, arg, $formal_set, $body);
       $$ = me;
@@ -349,7 +349,7 @@ expr_simple
       if ($1.l == s.size() && strncmp($1.p, s.data(), s.size()) == 0)
           $$ = state->exprs.add<ExprPos>(CUR_POS);
       else
-          $$ = state->exprs.add<ExprVar>(CUR_POS, state->symbols.create($1));
+          $$ = state->exprs.add<ExprVar>(CUR_POS, state->createSymbol($1));
   }
   | INT_LIT { $$ = state->exprs.add<ExprInt>($1); }
   | FLOAT_LIT { $$ = state->exprs.add<ExprFloat>($1); }
@@ -518,11 +518,11 @@ binds1
   ;
 
 attrs
-  : attrs attr { $$ = std::move($1); $$.emplace_back(state->symbols.create($2), state->at(@2)); }
+  : attrs attr { $$ = std::move($1); $$.emplace_back(state->createSymbol($2), state->at(@2)); }
   | attrs string_attr
     { $$ = std::move($1);
       $2.visit(overloaded{
-          [&](std::string_view str) { $$.emplace_back(state->symbols.create(str), state->at(@2)); },
+          [&](std::string_view str) { $$.emplace_back(state->createSymbol(str), state->at(@2)); },
           [&](Expr * expr) {
                 throw ParseError({
                     .msg = HintFmt("dynamic attributes not allowed in inherit"),
@@ -535,18 +535,18 @@ attrs
   ;
 
 attrpath
-  : attrpath '.' attr { $$ = std::move($1); $$.emplace_back(state->symbols.create($3)); }
+  : attrpath '.' attr { $$ = std::move($1); $$.emplace_back(state->createSymbol($3)); }
   | attrpath '.' string_attr
     { $$ = std::move($1);
       $3.visit(overloaded{
-          [&](std::string_view str) { $$.emplace_back(state->symbols.create(str)); },
+          [&](std::string_view str) { $$.emplace_back(state->createSymbol(str)); },
           [&](Expr * expr) { $$.emplace_back(expr); }}
       );
     }
-  | attr { $$.emplace_back(state->symbols.create($1)); }
+  | attr { $$.emplace_back(state->createSymbol($1)); }
   | string_attr
     { $1.visit(overloaded{
-          [&](std::string_view str) { $$.emplace_back(state->symbols.create(str)); },
+          [&](std::string_view str) { $$.emplace_back(state->createSymbol(str)); },
           [&](Expr * expr) { $$.emplace_back(expr); }}
       );
     }
@@ -583,8 +583,8 @@ formals
   ;
 
 formal
-  : ID { $$ = Formal{CUR_POS, state->symbols.create($1), 0}; }
-  | ID '?' expr { $$ = Formal{CUR_POS, state->symbols.create($1), $3}; }
+  : ID { $$ = Formal{CUR_POS, state->createSymbol($1), 0}; }
+  | ID '?' expr { $$ = Formal{CUR_POS, state->createSymbol($1), $3}; }
   ;
 
 %%

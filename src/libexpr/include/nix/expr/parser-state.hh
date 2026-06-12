@@ -163,6 +163,24 @@ struct ParserState
     static constexpr Expr::AstSymbols s = StaticEvalSymbols::create().exprSymbols;
     const EvalSettings & settings;
 
+    /**
+     * Read-through cache in front of SymbolTable::create. Identifier
+     * occurrences repeat heavily within a file, and the concurrent symbol
+     * table is considerably more expensive to query than a local map.
+     * Keys are views into the symbol table's stable storage.
+     */
+    boost::unordered_flat_map<std::string_view, Symbol> symbolCache;
+
+    Symbol createSymbol(std::string_view s)
+    {
+        auto it = symbolCache.find(s);
+        if (it != symbolCache.end())
+            return it->second;
+        auto sym = symbols.create(s);
+        symbolCache.emplace(std::string_view(symbols[sym]), sym);
+        return sym;
+    }
+
     void dupAttr(const AttrSelectionPath & attrPath, const PosIdx pos, const PosIdx prevPos);
     void dupAttr(Symbol attr, const PosIdx pos, const PosIdx prevPos);
     void addAttr(
