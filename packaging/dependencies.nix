@@ -87,6 +87,25 @@ scope: {
           ;
       };
 
+  # libgit2 master for reftable support (not yet in a release).
+  libgit2 = pkgs.libgit2.overrideAttrs (old: {
+    version = "2.0.0-rc.1-unstable-2026-10-16";
+    src = pkgs.fetchFromGitHub {
+      owner = "libgit2";
+      repo = "libgit2";
+      rev = "42a89d7cc9374a19e72fa57011e5fe3a99c7b3bf";
+      hash = "sha256-pMAxG7aPGkTm4XeWzCkGVgiyjWyTe6Q7CoZKBkqD2oU=";
+    };
+    # Fails on case-insensitive file systems.
+    checkPhase =
+      lib.replaceStrings
+        [ "testArgs=(-v -xonline)" ]
+        [
+          "testArgs=(-v -xonline${lib.optionalString stdenv.hostPlatform.isDarwin " -xcheckout::icase::overwrites_links_for_folders_when_forced"})"
+        ]
+        old.checkPhase;
+  });
+
   sqlite =
     if !stdenv.hostPlatform.isWindows then
       pkgs.sqlite
