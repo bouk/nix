@@ -9,6 +9,8 @@ export _NIX_FORCE_HTTP=1
 export GIT_CONFIG_GLOBAL="$TEST_ROOT/gitconfig"
 # New caches start with HEAD on master; the remote below uses main at a newer revision.
 git config --global init.defaultBranch master
+# libgit2 ignores GIT_CONFIG_GLOBAL; without this a host /etc/gitconfig can win.
+git config --file "$HOME/.gitconfig" init.defaultBranch master
 
 repo=$TEST_ROOT/repo
 createGitRepo "$repo"

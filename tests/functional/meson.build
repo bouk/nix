@@ -98,6 +98,7 @@ suites = [
       'fetchGit.sh',
       'fetchGitRev.sh',
       'fetchGitRefs.sh',
+      'fetchGitReftable.sh',
       'fetchGitShallow.sh',
       'fetchGitSubmodules.sh',
       'fetchGitVerification.sh',
